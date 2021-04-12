@@ -111,25 +111,25 @@ def collate_func(list_of_samples):
     new_vframes = []
     for sample in list_of_samples:
         vframes, text, txt_path, video_path = sample.values()
-        # vframes has shape (time, width, height, color)
+        # vframes has shape (time, height, width, color)
         
         # padding vframes with zeros along 'time' axis untill all samples has same max_time in batch
-        # after this vframes has shape (max_time, width, height, color)
+        # after this vframes has shape (max_time, height, width, color)
         time = vframes.shape[0]
         temp_vframes = np.pad(vframes, ((0,max_time-time), (0,0), (0,0), (0,0)))
         # paddin vframes with ... along 'time' axis
-        # after this vframes has shape (2*max_time, width, height, color)
+        # after this vframes has shape (2*max_time, height, width, color)
         temp_vframes = np.pad(temp_vframes, ((n_pad,n_pad), (0,0), (0,0), (0,0)), mode='reflect')
         
         # now crop vframes along 'time' axis with overlap
-        # after this vframes has shape (frames_num, win_len(this is time axis), width, height, color)
+        # after this vframes has shape (frames_num, win_len(this is time axis), height, width, color)
         max_time_long = max_time + 2*n_pad
         temp_vframes = np.stack(np.array(tuple(islice(temp_vframes, i, i+win_len))) for i in range(0, max_time_long-win_len, hop_len))
         
         # swith axis
-        # after this vframes has shape (frames_num, win_len, color, width, height)
+        # after this vframes has shape (frames_num, win_len, color, height, width)
         temp_vframes = np.moveaxis(temp_vframes, -1, -3)
         
         new_vframes.append(temp_vframes)
     
-    return torch.tensor(new_vframes, dtype=torch.float32) # shape (batch_size, frames_num, win_len, color, width, height)
+    return torch.tensor(new_vframes, dtype=torch.float32) # shape (batch_size, frames_num, win_len, color, height, width)
