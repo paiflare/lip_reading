@@ -1,29 +1,43 @@
+import numpy as np
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchvision.models as models
+
+
 class LipReadinNN(nn.Module):
     def __init__(self, tokens_to_id):
         super(self.__class__, self).__init__()
+        
         self.tokens_to_id = tokens_to_id
         self.id_to_tokens = {i: tok for tok, i in self.tokens_to_id.items()}
-        self.embedding = nn.Embedding(num_embeddings=len(tokens_to_id), embedding_dim=32, padding_idx=tokens_to_id['_PAD_'])
+        self.embedding = nn.Embedding(num_embeddings=len(tokens_to_id), embedding_dim=1024, padding_idx=tokens_to_id['_PAD_'])
         
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=(224,224), padding=0)
-        self.LSTM = nn.LSTM(input_size=16, hidden_size=32)
-        self.transformer = nn.Transformer(d_model=32, nhead=1, num_encoder_layers=2, num_decoder_layers=2, 
-                                          dim_feedforward=27)
-        self.linear = nn.Linear(in_features=32, out_features=len(tokens_to_id))
+        
+        resnet18 = models.resnet18(pretrained=True)
+        resnet18.fc = nn.Identity()
+        resnet18.requires_grad_(False)
+        self.resnet18 = resnet18
+        
+        self.LSTM = nn.LSTM(input_size=512, hidden_size=1024, num_layers=3)
+        self.transformer = nn.Transformer(d_model=1024, nhead=8, num_encoder_layers=6, num_decoder_layers=6, 
+                                          dim_feedforward=1024)
+        self.linear = nn.Linear(in_features=1024, out_features=len(tokens_to_id))
         self.softmax = nn.Softmax(dim=-1)
         
     def forward(self, input_batch, target_list_of_tokens=None):      
         batch_size, frames_num, win_len, color, height, width = input_batch.shape
         output = torch.moveaxis(input_batch, (0,1,2), (2,1,0)) # [win_len, frames_num, batch_size, color, height, width]
         
-        output = output.reshape(win_len*frames_num*batch_size, color, height, width) # [batch, C, H, W] for CNN
-        output = self.conv1(output)
+        output = output.reshape(win_len*frames_num*batch_size, color, height, width) # [batch, C, H, W] for resnet
+        output = self.resnet18(output)
         
-        output = output.reshape(win_len, frames_num*batch_size, 16) # [time, batch, feature] for LSTM
+        output = output.reshape(win_len, frames_num*batch_size, 512) # [time, batch, feature] for LSTM
         output, (h_n, c_n) = self.LSTM(output)
         output = output[-1, :, :] # last state output in LSTM seq (== h_n)
         
-        output = output.reshape(frames_num, batch_size, 32) # [seq, batch, feature] for Transformer
+        output = output.reshape(frames_num, batch_size, 1024) # [seq, batch, feature] for Transformer
         
         if self.training:
             if target_list_of_tokens is None:
