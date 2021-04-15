@@ -109,8 +109,10 @@ def collate_func(list_of_samples):
     n_pad = int(win_len // 2)
     
     new_vframes = []
+    list_of_sentences = []
     for sample in list_of_samples:
         vframes, text, txt_path, video_path = sample.values()
+        list_of_sentences.append(text)
         # vframes has shape (time, height, width, color)
         
         # padding vframes with zeros along 'time' axis untill all samples has same max_time in batch
@@ -131,5 +133,7 @@ def collate_func(list_of_samples):
         temp_vframes = np.moveaxis(temp_vframes, -1, -3)
         
         new_vframes.append(temp_vframes)
-    
-    return torch.tensor(new_vframes, dtype=torch.float32) # shape (batch_size, frames_num, win_len, color, height, width)
+
+    vframes_batch = torch.tensor(new_vframes, dtype=torch.float32) # shape (batch_size, frames_num, win_len, color, height, width)
+
+    return vframes_batch, list_of_sentences
