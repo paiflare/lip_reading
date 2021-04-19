@@ -20,8 +20,8 @@ class LipReadinNN(nn.Module):
         resnet18.requires_grad_(False)
         self.resnet18 = resnet18
         
-        self.LSTM = nn.LSTM(input_size=512, hidden_size=1024, num_layers=3)
-        self.transformer = nn.Transformer(d_model=1024, nhead=8, num_encoder_layers=6, num_decoder_layers=6, 
+        self.LSTM = nn.LSTM(input_size=512, hidden_size=1024, num_layers=2)
+        self.transformer = nn.Transformer(d_model=1024, nhead=1, num_encoder_layers=2, num_decoder_layers=2, 
                                           dim_feedforward=1024)
         self.linear = nn.Linear(in_features=1024, out_features=len(tokens_to_id))
         self.softmax = nn.Softmax(dim=-1)
@@ -43,10 +43,12 @@ class LipReadinNN(nn.Module):
             if target_list_of_tokens is None:
                 raise Exception('need target_list_of_tokens if model in train mode')
             target_batch = self.list_of_tokens_to_tensor_of_tokens_idx(target_list_of_tokens) # [batch, seq]
+            target_batch = target_batch.to(self.embedding.weight.device) # костыль, чтобы совпадало расположение тензоров на device
             target_output = self.embedding(target_batch) # [batch, seq, emb_size]
             target_output = torch.moveaxis(target_output, (0,1), (1,0)) # [seq, batch, emb_size] for Transformer
         else:
             target_batch = self.tokens_to_id['_BOS_']*torch.ones((batch_size, 1), dtype=torch.long) # [batch, seq=1]
+            target_batch = target_batch.to(self.embedding.weight.device) # костыль, чтобы совпадало расположение тензоров на device
             target_output = self.embedding(target_batch) # [batch, seq=1, emb_size]
             target_output = torch.moveaxis(target_output, (0,1), (1,0)) # [seq=1, batch, emb_size] for Transformer
             

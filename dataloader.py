@@ -4,15 +4,15 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 import torchvision
+import nltk
 from torchvideotransforms import video_transforms
 from itertools import islice
 
-data_path = os.path.normpath('E:/lip_reading_data/LRS3/lrs3_trainval/trainval')
-data_path_zip = os.path.normpath('E:/lip_reading_data/LRS3/lrs3_trainval/trainval.zip')
-
+#data_path = os.path.normpath('E:/lip_reading_data/LRS3/lrs3_trainval/trainval')
+#data_path_zip = os.path.normpath('E:/lip_reading_data/LRS3/lrs3_trainval/trainval.zip')
 
 class LipReadingVideoDataset(Dataset):
-    def __init__(self, data_path, transform=None):
+    def __init__(self, data_path, transform=None, tokenizer=None):
         self.file_paths = []
         for dir_path, dir_names, file_names in os.walk(data_path):
             # перебрать файлы
@@ -22,6 +22,7 @@ class LipReadingVideoDataset(Dataset):
                     self.file_paths.append(file_path)
         self.data_path = data_path
         self.transform = transform
+        self.tokenizer = tokenizer if tokenizer is not None else nltk.tokenize.WordPunctTokenizer()
 
     def __len__(self):
         return len(self.file_paths)
@@ -32,6 +33,7 @@ class LipReadingVideoDataset(Dataset):
         _, text = txt_file.readline().split(':') # прочитанный текст
         text = text.strip()
         txt_file.close()
+        tokens = self.tokenizer.tokenize(text)
 
         video_path = txt_path.replace('.txt', '.mp4') # заменяем путь на путь до видео
 
@@ -56,13 +58,13 @@ class LipReadingVideoDataset(Dataset):
         vframes = normalize(vframes) # [color, time, height, width]
         vframes = torch.moveaxis(vframes, (0,1), (1,0)) # [time, color, height, width]
 
-        sample = {'vframes': vframes, 'text': text, 
+        sample = {'vframes': vframes, 'text': tokens, 
                   'txt_path': txt_path, 'video_path': video_path}
 
         return sample
     
 class LipReadingVideoDatasetZIP(Dataset):
-    def __init__(self, data_path_zip, transform=None):
+    def __init__(self, data_path_zip, transform=None, tokenizer=None):
         self.file_paths_in_zip = []
         self.file_zip = zipfile.ZipFile(data_path_zip)
         # перебрать файлы
@@ -72,6 +74,7 @@ class LipReadingVideoDatasetZIP(Dataset):
                 self.file_paths_in_zip.append(file_name)
         self.data_path = data_path_zip
         self.transform = transform
+        self.tokenizer = tokenizer if tokenizer is not None else nltk.tokenize.WordPunctTokenizer()
 
     def __len__(self):
         return len(self.file_paths_in_zip)
@@ -91,6 +94,7 @@ class LipReadingVideoDatasetZIP(Dataset):
         _, text = txt_file.readline().decode('utf-8').split(':') # прочитанный текст
         text = text.strip()
         txt_file.close()
+        tokens = self.tokenizer.tokenize(text)
 
         video_path_in_zip = txt_path_in_zip.replace('.txt', '.mp4') # заменяем путь на путь до видео
         video_file = self.file_zip.open(video_path_in_zip, mode='r')
@@ -116,7 +120,7 @@ class LipReadingVideoDatasetZIP(Dataset):
         vframes = normalize(vframes) # [color, time, height, width]
         vframes = torch.moveaxis(vframes, (0,1), (1,0)) # [time, color, height, width]
 
-        sample = {'vframes': vframes, 'text': text, 
+        sample = {'vframes': vframes, 'text': tokens, 
                   'txt_path': txt_path_in_zip, 'video_path': video_path_in_zip}
 
         return sample
@@ -129,10 +133,10 @@ def collate_func(list_of_samples):
     n_pad = int(win_len // 2)
     
     new_vframes = []
-    list_of_sentences = []
+    list_of_tokens = []
     for sample in list_of_samples:
-        vframes, text, txt_path, video_path = sample.values()
-        list_of_sentences.append(text)
+        vframes, tokens, txt_path, video_path = sample.values()
+        list_of_tokens.append(tokens)
         # vframes has shape (time, color, height, width)
         
         # padding vframes with zeros along 'time' axis untill all samples has same max_time in batch
@@ -152,4 +156,4 @@ def collate_func(list_of_samples):
 
     vframes_batch = torch.tensor(new_vframes, dtype=torch.float32) # shape (batch_size, frames_num, win_len, color, height, width)
 
-    return vframes_batch, list_of_sentences
+    return vframes_batch, list_of_tokens
