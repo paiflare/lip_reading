@@ -13,6 +13,8 @@ from itertools import islice
 
 class LipReadingVideoDataset(Dataset):
     def __init__(self, data_path, transform=None, tokenizer=None):
+        self.device = torch.device('cpu' if not torch.cuda.is_available() else 'cuda')
+        
         self.file_paths = []
         for dir_path, dir_names, file_names in os.walk(data_path):
             # перебрать файлы
@@ -65,6 +67,8 @@ class LipReadingVideoDataset(Dataset):
     
 class LipReadingVideoDatasetZIP(Dataset):
     def __init__(self, data_path_zip, transform=None, tokenizer=None):
+        self.device = torch.device('cpu' if not torch.cuda.is_available() else 'cuda')
+        
         self.file_paths_in_zip = []
         self.file_zip = zipfile.ZipFile(data_path_zip)
         # перебрать файлы
@@ -127,6 +131,8 @@ class LipReadingVideoDatasetZIP(Dataset):
 
 # функция создания батча
 def collate_func(list_of_samples):
+    device = torch.device('cpu' if not torch.cuda.is_available() else 'cuda')
+    
     max_time = max(sample['vframes'].shape[0] for sample in list_of_samples)
     win_len = 128
     hop_len = 32
@@ -154,6 +160,6 @@ def collate_func(list_of_samples):
         
         new_vframes.append(temp_vframes)
 
-    vframes_batch = torch.tensor(new_vframes, dtype=torch.float32) # shape (batch_size, frames_num, win_len, color, height, width)
+    vframes_batch = torch.tensor(new_vframes, dtype=torch.float32, device=device) # shape (batch_size, frames_num, win_len, color, height, width)
 
     return vframes_batch, list_of_tokens
