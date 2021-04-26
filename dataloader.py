@@ -11,18 +11,72 @@ from itertools import islice
 #data_path = os.path.normpath('E:/lip_reading_data/LRS3/lrs3_trainval/trainval')
 #data_path_zip = os.path.normpath('E:/lip_reading_data/LRS3/lrs3_trainval/trainval.zip')
 
+def get_vframes(video_path, transform=None, in_zip=None):
+    if in_zip and in_zip.endswith('.zip'):
+        video_file = zipfile.ZipFile(in_zip).open(video_path, mode='r') # считывает в виде байтов
+    else:
+        video_file = open(video_path, mode='rb')
+    vframes, aframes, info = torchvision.io.read_video(video_file) # считывание видео [time, height, width, color]
+    video_file.close()
+    
+    # change tensor to list of np.array
+    vframes = list(map(lambda tensor: np.asarray(tensor, dtype=np.float32)/255, vframes))
+
+    # преобразования видео (стандартные; они ожидают list of np.array)
+    if transform:
+        vframes = transform(vframes)
+
+    # преобразование видео для отправки в нейросеть LipReadingNN
+    # так как в LipReadinNN встроен ResNet18, то он ожидает нормализованную картинку определенного размера
+    resize = video_transforms.Resize((224, 224))
+    vframes = resize(vframes) # list of np.array [height=224, width=224, color]
+    vframes = torch.tensor(vframes) # [time, height, width, color]
+    vframes = torch.moveaxis(vframes, (0,1,2,3), (1,2,3,0)) # [color, time, height, width]
+    normalize = video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                           std=[0.229, 0.224, 0.225])
+    vframes = normalize(vframes) # [color, time, height, width]
+    vframes = torch.moveaxis(vframes, (0,1), (1,0)) # [time, color, height, width]
+    
+    return vframes
+
+def get_tokens(txt_path, tokenizer=None, in_zip=None):
+    if in_zip and in_zip.endswith('.zip'):
+        txt_file = zipfile.ZipFile(in_zip).open(txt_path, mode='r') # считывает в виде байтов
+        _, text = txt_file.readline().decode('utf-8').split(':') # прочитанный текст
+    else:
+        txt_file = open(txt_path, mode='r')
+        _, text = txt_file.readline().split(':') # прочитанный текст
+    text = text.strip()
+    txt_file.close()
+    
+    if tokenizer:
+        tokens = tokenizer.tokenize(text)
+    else:
+        tokens = text.split()
+    
+    return tokens
+
 class LipReadingVideoDataset(Dataset):
     def __init__(self, data_path, transform=None, tokenizer=None):
-        self.device = torch.device('cpu' if not torch.cuda.is_available() else 'cuda')
+        #self.device = torch.device('cpu' if not torch.cuda.is_available() else 'cuda')
         
         self.file_paths = []
-        for dir_path, dir_names, file_names in os.walk(data_path):
+        if data_path.endswith('.zip'): # если путь указан до .zip
+            file_zip = zipfile.ZipFile(data_path)
             # перебрать файлы
-            for file_name in file_names:
-                if file_name.endswith('.mp4'):
-                    file_path = os.path.join(dir_path, file_name)
+            for file in file_zip.filelist:
+                file_path = file.filename
+                if file_path.endswith('.mp4'):
                     self.file_paths.append(file_path)
-        self.data_path = data_path
+        else: # если путь указан до директории
+            for dir_path, dir_names, file_names in os.walk(data_path):
+                # перебрать файлы
+                for file_name in file_names:
+                    if file_name.endswith('.mp4'):
+                        file_path = os.path.join(dir_path, file_name)
+                        self.file_paths.append(file_path)
+        self.data_path = data_path # путь либо до директории, либо до zip файла
+        
         self.transform = transform
         self.tokenizer = tokenizer if tokenizer is not None else nltk.tokenize.WordPunctTokenizer()
 
@@ -31,92 +85,12 @@ class LipReadingVideoDataset(Dataset):
 
     def __getitem__(self, idx):
         video_path = self.file_paths[idx]
-
-        vframes, aframes, info = torchvision.io.read_video(video_path) # считывание видео [time, height, width, color]
-
-        
-        # change tensor to list of np.array
-        vframes = list(map(lambda tensor: np.asarray(tensor, dtype=np.float32)/255, vframes))
-        
-        # преобразования видео (стандартные; они ожидают list of np.array)
-        if self.transform:
-            vframes = self.transform(vframes)
-        
-        # преобразование видео для отправки в нейросеть LipReadingNN
-        # так как в LipReadinNN встроен ResNet18, то он ожидает нормализованную картинку определенного размера
-        resize = video_transforms.Resize((224, 224))
-        vframes = resize(vframes) # list of np.array [height=224, width=224, color]
-        vframes = torch.tensor(vframes) # [time, height, width, color]
-        vframes = torch.moveaxis(vframes, (0,1,2,3), (1,2,3,0)) # [color, time, height, width]
-        normalize = video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                               std=[0.229, 0.224, 0.225])
-        vframes = normalize(vframes) # [color, time, height, width]
-        vframes = torch.moveaxis(vframes, (0,1), (1,0)) # [time, color, height, width]
+        vframes = get_vframes(video_path, transform=self.transform, in_zip=self.data_path)
 
         txt_path = video_path.replace('.mp4', '.txt')  # заменяем путь на путь до видео
-        txt_file = open(txt_path, 'r')
-        _, text = txt_file.readline().split(':') # прочитанный текст
-        text = text.strip()
-        txt_file.close()
-        tokens = self.tokenizer.tokenize(text)
+        tokens = get_tokens(txt_path, tokenizer=self.tokenizer, in_zip=self.data_path)
 
-        sample = {'vframes': vframes, 'text': tokens, 
-                  'txt_path': txt_path, 'video_path': video_path}
-
-        return sample
-    
-class LipReadingVideoDatasetZIP(Dataset):
-    def __init__(self, data_path_zip, transform=None, tokenizer=None):
-        self.device = torch.device('cpu' if not torch.cuda.is_available() else 'cuda')
-        
-        self.file_paths_in_zip = []
-        self.file_zip = zipfile.ZipFile(data_path_zip)
-        # перебрать файлы
-        for file in self.file_zip.filelist:
-            file_path = file.filename
-            if file_path.endswith('.mp4'):
-                self.file_paths_in_zip.append(file_path)
-        self.data_path = data_path_zip
-        self.transform = transform
-        self.tokenizer = tokenizer if tokenizer is not None else nltk.tokenize.WordPunctTokenizer()
-
-    def __len__(self):
-        return len(self.file_paths_in_zip)
-
-    def __getitem__(self, idx):
-        video_path_in_zip = self.file_paths_in_zip[idx]
-        video_file = self.file_zip.open(video_path_in_zip, mode='r')
-        
-        vframes, aframes, info = torchvision.io.read_video(video_file) # считывание видео [time, height, width, color]
-        video_file.close()
-        
-        # change tensor to list of np.array
-        vframes = list(map(lambda tensor: np.asarray(tensor, dtype=np.float32)/255, vframes))
-        
-        # преобразования видео (стандартные; они ожидают list of np.array)
-        if self.transform:
-            vframes = self.transform(vframes)
-        
-        # преобразование видео для отправки в нейросеть LipReadingNN
-        # так как в LipReadinNN встроен ResNet18, то он ожидает нормализованную картинку определенного размера
-        resize = video_transforms.Resize((224, 224))
-        vframes = resize(vframes) # list of np.array [height=224, width=224, color]
-        vframes = torch.tensor(vframes) # [time, height, width, color]
-        vframes = torch.moveaxis(vframes, (0,1,2,3), (1,2,3,0)) # [color, time, height, width]
-        normalize = video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                               std=[0.229, 0.224, 0.225])
-        vframes = normalize(vframes) # [color, time, height, width]
-        vframes = torch.moveaxis(vframes, (0,1), (1,0)) # [time, color, height, width]
-
-        txt_path_in_zip = video_path_in_zip.replace('.mp4', '.txt')  # заменяем на путь до текста
-        txt_file = self.file_zip.open(txt_path_in_zip, mode='r')
-        _, text = txt_file.readline().decode('utf-8').split(':') # прочитанный текст
-        text = text.strip()
-        txt_file.close()
-        tokens = self.tokenizer.tokenize(text)
-
-        sample = {'vframes': vframes, 'text': tokens, 
-                  'txt_path': txt_path_in_zip, 'video_path': video_path_in_zip}
+        sample = {'vframes': vframes, 'text': tokens}
 
         return sample
 
@@ -132,7 +106,7 @@ def collate_func(list_of_samples):
     new_vframes = []
     list_of_tokens = []
     for sample in list_of_samples:
-        vframes, tokens, txt_path, video_path = sample.values()
+        vframes, tokens = sample.values()
         list_of_tokens.append(tokens)
         # vframes has shape (time, color, height, width)
         
