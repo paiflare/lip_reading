@@ -88,7 +88,7 @@ class LipReadinNN(nn.Module):
         predict_tensor_of_tokens_idx = torch.argmax(probs, dim=-1) # [batch, seq_len]
         predict_list_of_tokens = self.tensor_of_tokens_idx_to_list_of_tokens(predict_tensor_of_tokens_idx)
         
-         if target_list_of_tokens is not None:
+        if target_list_of_tokens is not None:
             # for compute loss
             predict_batch = torch.moveaxis(predict_output, (1,2), (2,1)) # [batch, classes_num, seq_len] for loss
             self.loss = self.compute_loss(predict_batch, target_batch)

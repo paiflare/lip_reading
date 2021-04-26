@@ -19,7 +19,7 @@ class LipReadingVideoDataset(Dataset):
         for dir_path, dir_names, file_names in os.walk(data_path):
             # перебрать файлы
             for file_name in file_names:
-                if file_name.endswith('.txt'):
+                if file_name.endswith('.mp4'):
                     file_path = os.path.join(dir_path, file_name)
                     self.file_paths.append(file_path)
         self.data_path = data_path
@@ -30,17 +30,10 @@ class LipReadingVideoDataset(Dataset):
         return len(self.file_paths)
 
     def __getitem__(self, idx):
-        txt_path = self.file_paths[idx]
-        txt_file = open(txt_path, 'r')
-        _, text = txt_file.readline().split(':') # прочитанный текст
-        text = text.strip()
-        txt_file.close()
-        tokens = self.tokenizer.tokenize(text)
+        video_path = self.file_paths[idx]
 
-        video_path = txt_path.replace('.txt', '.mp4') # заменяем путь на путь до видео
+        vframes, aframes, info = torchvision.io.read_video(video_path) # считывание видео [time, height, width, color]
 
-        vframes, aframes, info = torchvision.io.read_video(video_file) # считывание видео [time, height, width, color]
-        video_file.close()
         
         # change tensor to list of np.array
         vframes = list(map(lambda tensor: np.asarray(tensor, dtype=np.float32)/255, vframes))
@@ -60,6 +53,13 @@ class LipReadingVideoDataset(Dataset):
         vframes = normalize(vframes) # [color, time, height, width]
         vframes = torch.moveaxis(vframes, (0,1), (1,0)) # [time, color, height, width]
 
+        txt_path = video_path.replace('.mp4', '.txt')  # заменяем путь на путь до видео
+        txt_file = open(txt_path, 'r')
+        _, text = txt_file.readline().split(':') # прочитанный текст
+        text = text.strip()
+        txt_file.close()
+        tokens = self.tokenizer.tokenize(text)
+
         sample = {'vframes': vframes, 'text': tokens, 
                   'txt_path': txt_path, 'video_path': video_path}
 
@@ -73,34 +73,18 @@ class LipReadingVideoDatasetZIP(Dataset):
         self.file_zip = zipfile.ZipFile(data_path_zip)
         # перебрать файлы
         for file in self.file_zip.filelist:
-            file_name = file.filename
-            if file_name.endswith('.txt'):
-                self.file_paths_in_zip.append(file_name)
+            file_path = file.filename
+            if file_path.endswith('.mp4'):
+                self.file_paths_in_zip.append(file_path)
         self.data_path = data_path_zip
         self.transform = transform
         self.tokenizer = tokenizer if tokenizer is not None else nltk.tokenize.WordPunctTokenizer()
 
     def __len__(self):
         return len(self.file_paths_in_zip)
-    
-    def __getitem__(self, idx):
-        txt_path = self.file_paths[idx]
-        txt_file = open(txt_path, 'r')
-        _, text = txt_file.readline().split(':') # прочитанный текст
-        text = text.strip()
-        txt_file.close()
-
-        video_path = txt_path.replace('.txt', '.mp4') # заменяем путь на путь до видео
 
     def __getitem__(self, idx):
-        txt_path_in_zip = self.file_paths_in_zip[idx]
-        txt_file = self.file_zip.open(txt_path_in_zip, mode='r')
-        _, text = txt_file.readline().decode('utf-8').split(':') # прочитанный текст
-        text = text.strip()
-        txt_file.close()
-        tokens = self.tokenizer.tokenize(text)
-
-        video_path_in_zip = txt_path_in_zip.replace('.txt', '.mp4') # заменяем путь на путь до видео
+        video_path_in_zip = self.file_paths_in_zip[idx]
         video_file = self.file_zip.open(video_path_in_zip, mode='r')
         
         vframes, aframes, info = torchvision.io.read_video(video_file) # считывание видео [time, height, width, color]
@@ -123,6 +107,13 @@ class LipReadingVideoDatasetZIP(Dataset):
                                                std=[0.229, 0.224, 0.225])
         vframes = normalize(vframes) # [color, time, height, width]
         vframes = torch.moveaxis(vframes, (0,1), (1,0)) # [time, color, height, width]
+
+        txt_path_in_zip = video_path_in_zip.replace('.mp4', '.txt')  # заменяем на путь до текста
+        txt_file = self.file_zip.open(txt_path_in_zip, mode='r')
+        _, text = txt_file.readline().decode('utf-8').split(':') # прочитанный текст
+        text = text.strip()
+        txt_file.close()
+        tokens = self.tokenizer.tokenize(text)
 
         sample = {'vframes': vframes, 'text': tokens, 
                   'txt_path': txt_path_in_zip, 'video_path': video_path_in_zip}
