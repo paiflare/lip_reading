@@ -21,7 +21,7 @@ class LipReadinNN_LSTM(nn.Module):
         self.resnet18 = resnet18
         
         self.LSTM1 = nn.LSTM(input_size=512, hidden_size=1024, num_layers=2, dropout=0.1) # encoder on win_len
-        self.LSTM2 = nn.LSTM(input_size=1024, hidden_size=512, num_layers=2, dropout=0.1) # encoder on frames_num
+        self.LSTM_encoder = nn.LSTM(input_size=1024, hidden_size=512, num_layers=2, dropout=0.1) # encoder on frames_num
         self.LSTM_decoder = nn.LSTM(input_size=512, hidden_size=512, num_layers=1) #decoder
 
         self.linear = nn.Linear(in_features=512, out_features=len(tokens_to_id))
@@ -38,8 +38,8 @@ class LipReadinNN_LSTM(nn.Module):
         output, (h_n, c_n) = self.LSTM1(output) # output shape is [time, batch, feature=1024]
         output = output[-1, :, :] # last state output in LSTM seq [batch, feature=1024]
         
-        output = output.reshape(frames_num, batch_size, 1024) # [frames_num, batch, feature=1024] for LSTM2
-        output, (h_n, c_n) = self.LSTM2(output) # output shape is [frames_num, batch, feature=512]
+        output = output.reshape(frames_num, batch_size, 1024) # [frames_num, batch, feature=1024] for LSTM_encoder
+        output, (h_n, c_n) = self.LSTM_encoder(output) # output shape is [frames_num, batch, feature=512]
         output = output[-1, :, :] # last state output in LSTM seq [batch, feature=512]
         
         dummy_h = output[None, :, :] # [1, batch, feature=512]
