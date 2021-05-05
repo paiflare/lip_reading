@@ -47,11 +47,10 @@ class LipReadinNN_LSTM(nn.Module):
         
         # если в nn передали list_of_tokens, то loss будет высчитываться, сравнивая с этим истинным значением
         # если в nn не передали list_of_tokens, то loss высчитываться не будет
-        if target_list_of_tokens is not None:
+        if self.training and target_list_of_tokens is not None:
             target_batch = self.list_of_tokens_to_tensor_of_tokens_idx(target_list_of_tokens) # [batch, seq_len]
             target_batch = target_batch.to(self.embedding.weight.device) # костыль, чтобы совпадало расположение тензоров на device
-        
-        if self.training:    
+
             target_output = self.embedding(target_batch) # [batch, seq_len, emb_size=512]
             target_output = torch.moveaxis(target_output, (0,1), (1,0)) # [seq_len, batch, emb_size=512] for LSTM_decoder
         else:
@@ -61,8 +60,8 @@ class LipReadinNN_LSTM(nn.Module):
             target_output = self.embedding(dummy_batch) # [batch, seq_len=1, emb_size=512]
             target_output = torch.moveaxis(target_output, (0,1), (1,0)) # [seq_len=1, batch, emb_size=512] for LSTM_decoder
             
-            # generate predict_output untill all seq hasn't _EOS_
-            i = 1; max_iter = target_batch.shape[1] if target_list_of_tokens is not None else 30
+            # generate predict_output untill all seq hasn't _EOS_ or len(seq) != 30
+            i = 1; max_iter = 30 #target_batch.shape[1] if target_list_of_tokens is not None else 30
             while i < max_iter:
                 i += 1
                 predict_output, (h_n, c_n) = self.LSTM_decoder(target_output, (dummy_h, dummy_z)) # [seq_len=i, batch, emb_size=512]
@@ -71,16 +70,20 @@ class LipReadinNN_LSTM(nn.Module):
                 last_slice_of_predict_output = predict_output[-1:, :, :] # [seq_len=1, batch, emb_size=512]
                 target_output = torch.cat((target_output, last_slice_of_predict_output), dim=0) # [seq_len=i+1, batch, emb_size=512]
                 
-                # # проверка на наличие токена _EOS_ в ответе
-                # predict_output = torch.moveaxis(predict_output, (0,1), (1,0)) # [batch, seq_len=i, emb_size=512] for Linear
-                # predict_output = self.linear(predict_output) # [batch, seq_len=i, classes_num]
-                # probs = self.softmax(predict_output) # [batch, seq_len=i, classes_num]
-                # predict_tensor_of_tokens_idx = torch.argmax(probs, dim=-1) # [batch, seq_len=i]
+                # проверка на наличие токена _EOS_ в ответе
+                predict_output = torch.moveaxis(predict_output, (0,1), (1,0)) # [batch, seq_len=i, emb_size=512] for Linear
+                predict_output = self.linear(predict_output) # [batch, seq_len=i, classes_num]
+                probs = self.softmax(predict_output) # [batch, seq_len=i, classes_num]
+                predict_tensor_of_tokens_idx = torch.argmax(probs, dim=-1) # [batch, seq_len=i]
 
-                # # сравниваем каждый токен в строке с токеном _EOS_ и берем логическое ИЛИ вдоль размерности seq
-                # val, ind = torch.max(predict_tensor_of_tokens_idx==self.tokens_to_id['_EOS_'], dim=1)
-                # # берем логическое И вдоль размерности batch, чтобы убедиться, что каждый пример из батча имеет токен _EOS_
-                # val, ind = torch.min(val, dim=0)
+                # сравниваем каждый токен в строке с токеном _EOS_ и берем логическое ИЛИ вдоль размерности seq
+                val, ind = torch.max(predict_tensor_of_tokens_idx==self.tokens_to_id['_EOS_'], dim=1)
+                # берем логическое И вдоль размерности batch, чтобы убедиться, что каждый пример из батча имеет токен _EOS_
+                val, ind = torch.min(val, dim=0)
+
+                # если в каждом примере есть токен _EOS_, то заканчиваем генерацию
+                if val.data:
+                    break
             # else:
                 # # для фиктивного расчета loss
                 # dummy_batch = torch.cat((dummy_batch, predict_tensor_of_tokens_idx), dim=1) # [batch, seq_len=max_iter]
@@ -98,7 +101,7 @@ class LipReadinNN_LSTM(nn.Module):
         if target_list_of_tokens is not None:
             # for compute loss
             predict_batch = torch.moveaxis(predict_output, (1,2), (2,1)) # [batch, classes_num, seq_len] for loss
-            self.loss = self.compute_loss(predict_batch, target_batch)
+            self.loss = self.compute_loss(predict_batch[:,:,:-1], target_batch[:,1:])
         else:
             self.loss = None
             # for compute dummy loss
