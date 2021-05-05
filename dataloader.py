@@ -114,13 +114,14 @@ def collate_func(list_of_samples):
         # after this vframes has shape (max_time, color, height, width)
         time = vframes.shape[0]
         temp_vframes = np.pad(vframes, ((0,max_time-time), (0,0), (0,0), (0,0)))
-        # paddin vframes with ... along 'time' axis
-        # after this vframes has shape (2*max_time, color, height, width)
-        temp_vframes = np.pad(temp_vframes, ((n_pad,n_pad), (0,0), (0,0), (0,0)), mode='reflect')
+
+        # # paddin vframes with ... along 'time' axis
+        # # after this vframes has shape (max_time + 2*n_pad, color, height, width)
+        # temp_vframes = np.pad(temp_vframes, ((n_pad,n_pad), (0,0), (0,0), (0,0)), mode='reflect')
         
         # now crop vframes along 'time' axis with overlap
         # after this vframes has shape (frames_num, win_len(this is time axis), color, height, width)
-        max_time_long = max_time + 2*n_pad
+        max_time_long = max_time# + 2*n_pad
         temp_vframes = np.stack(np.array(tuple(islice(temp_vframes, i, i+win_len))) for i in range(0, max_time_long-win_len, hop_len))
         
         new_vframes.append(temp_vframes)
