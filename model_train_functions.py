@@ -10,7 +10,6 @@ def test_model(model, test_dataloader, device):
     test_loss = []
 
     for i, (vframes_batch, list_of_tokens) in enumerate(test_dataloader):
-        print('test cycle step')
         vframes_batch = vframes_batch.to(device)
 
         with torch.no_grad(): # на test просто прогоняем модель, не собирая grad
@@ -18,9 +17,6 @@ def test_model(model, test_dataloader, device):
 
             loss = model.loss
             test_loss.append(loss.item())
-        
-        if i >= 5: # не больше 5 батчей на val и test, чтобы зря не тратить вычисления
-            break
     
     model.train(True)
     
@@ -38,7 +34,6 @@ def train_model(model, train_dataloader, val_dataloader, optimizer, device):
     temp_train_loss = []
     fig, ax = plt.subplots() # для рсиунков
     for i, (vframes_batch, list_of_tokens) in enumerate(train_dataloader):
-        print('|', end='')
         vframes_batch = vframes_batch.to(device)
 
         output = model(vframes_batch, list_of_tokens)
@@ -50,8 +45,12 @@ def train_model(model, train_dataloader, val_dataloader, optimizer, device):
         optimizer.step()
         optimizer.zero_grad()
         
-        if i % 100 == 0 and i > 0:
+        if i % 500 == 0 and i > 0:
             print('val step')
+            # сохраняем модель
+            PATH = f'model_{i}.pt'
+            torch.save(model.state_dict(), PATH)
+
             X.append(i) # координаты для прорисовки
             
             mean_loss_on_train = np.array(temp_train_loss).mean() # усредняем собранный loss на train'е
@@ -61,7 +60,8 @@ def train_model(model, train_dataloader, val_dataloader, optimizer, device):
             
             temp_val_loss = test_model(model, val_dataloader, device)
             mean_loss_on_val = np.array(temp_val_loss).mean() # усредняем собранный loss на val'е
-            val_loss.append(mean_loss_on_val) 
+            val_loss.append(mean_loss_on_val)
+
             
             # печатаем и рисуем полученные значения
             print(f'mean loss on train: \t{mean_loss_on_train}')
@@ -70,9 +70,7 @@ def train_model(model, train_dataloader, val_dataloader, optimizer, device):
             ax.clear()
             ax.plot(X, train_loss, label='train')
             ax.plot(X, val_loss, label='val')
-            
-            # сохраняем модель
-            PATH = f'model_{i}.pt'
-            torch.save(model.state_dict(), PATH)
+            ax.savefig(f'images/result_{i}.png')
+
     
     return train_loss, val_loss

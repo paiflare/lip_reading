@@ -7,6 +7,8 @@ import torchvision
 import nltk
 from torchvideotransforms import video_transforms
 from itertools import islice
+from joblib import Parallel, delayed
+
 
 #data_path = os.path.normpath('E:/lip_reading_data/LRS3/lrs3_trainval/trainval')
 #data_path_zip = os.path.normpath('E:/lip_reading_data/LRS3/lrs3_trainval/trainval.zip')
@@ -96,36 +98,42 @@ class LipReadingVideoDataset(Dataset):
 
 # функция создания батча
 def collate_func(list_of_samples):
-    device = torch.device('cpu' if not torch.cuda.is_available() else 'cuda')
-    
-    max_time = max(sample['vframes'].shape[0] for sample in list_of_samples)
-    win_len = 128
-    hop_len = 32
+    cut = 128
+    max_time = min(cut, max(sample['vframes'].shape[0] for sample in list_of_samples))
+    win_len = 16
+    hop_len = 8
     n_pad = int(win_len // 2)
     
-    new_vframes = []
-    list_of_tokens = []
-    for sample in list_of_samples:
+    def create_temp_vframes(sample):
         vframes, tokens = sample.values()
-        list_of_tokens.append(tokens)
+        vframes = vframes[:cut]
+        #list_of_tokens.append(tokens)
         # vframes has shape (time, color, height, width)
-        
+
         # padding vframes with zeros along 'time' axis untill all samples has same max_time in batch
         # after this vframes has shape (max_time, color, height, width)
         time = vframes.shape[0]
         temp_vframes = np.pad(vframes, ((0,max_time-time), (0,0), (0,0), (0,0)))
 
-        # # paddin vframes with ... along 'time' axis
-        # # after this vframes has shape (max_time + 2*n_pad, color, height, width)
-        # temp_vframes = np.pad(temp_vframes, ((n_pad,n_pad), (0,0), (0,0), (0,0)), mode='reflect')
-        
+        # paddin vframes with ... along 'time' axis
+        # after this vframes has shape (max_time + 2*n_pad, color, height, width)
+        temp_vframes = np.pad(temp_vframes, ((n_pad,n_pad), (0,0), (0,0), (0,0)))
+
         # now crop vframes along 'time' axis with overlap
         # after this vframes has shape (frames_num, win_len(this is time axis), color, height, width)
-        max_time_long = max_time# + 2*n_pad
+        max_time_long = max_time + 2*n_pad
         temp_vframes = np.stack(np.array(tuple(islice(temp_vframes, i, i+win_len))) for i in range(0, max_time_long-win_len, hop_len))
-        
-        new_vframes.append(temp_vframes)
 
-    vframes_batch = torch.tensor(new_vframes, dtype=torch.float32, device=device) # shape (batch_size, frames_num, win_len, color, height, width)
+        return temp_vframes, tokens
+    
+    res = Parallel(n_jobs=8)(delayed(create_temp_vframes)(sample) for sample in list_of_samples)
+    
+    new_vframes = []
+    list_of_tokens = []
+    for temp_vframes, tokens in res:
+        new_vframes.append(temp_vframes)
+        list_of_tokens.append(tokens)
+
+    vframes_batch = torch.tensor(new_vframes, dtype=torch.float32) # shape (batch_size, frames_num, win_len, color, height, width)
 
     return vframes_batch, list_of_tokens
