@@ -47,7 +47,7 @@ class LipReadinNN_LSTM(nn.Module):
         
         # если в nn передали list_of_tokens, то loss будет высчитываться, сравнивая с этим истинным значением
         # если в nn не передали list_of_tokens, то loss высчитываться не будет
-        if self.training and target_list_of_tokens is not None:
+        if target_list_of_tokens is not None:
             target_batch = self.list_of_tokens_to_tensor_of_tokens_idx(target_list_of_tokens) # [batch, seq_len]
             target_batch = target_batch.to(self.embedding.weight.device) # костыль, чтобы совпадало расположение тензоров на device
 
@@ -104,9 +104,9 @@ class LipReadinNN_LSTM(nn.Module):
             self.loss = self.compute_loss(predict_batch[:,:,:-1], target_batch[:,1:])
         else:
             self.loss = None
-            # for compute dummy loss
+            # # for compute dummy loss
             # predict_batch = torch.moveaxis(predict_output, (1,2), (2,1)) # [batch, classes_num, seq_len] for loss
-            # self.loss = self.compute_loss(predict_batch, dummy_batch)
+            # self.loss = self.compute_loss(predict_batch[:,:,:-1], dummy_batch[:,:,:-1])
         
         return predict_list_of_tokens
 
